@@ -11,7 +11,10 @@ import {
 } from '@hyperdx/common-utils/dist/types';
 import { z } from 'zod';
 
-import { externalQuantileLevelSchema } from '@/utils/zod';
+import {
+  externalDashboardFilterSchemaWithId,
+  externalQuantileLevelSchema,
+} from '@/utils/zod';
 
 // ─── Shared tile schemas for MCP dashboard tools ─────────────────────────────
 const mcpNumberFormatSchema = z
@@ -440,6 +443,34 @@ export const mcpTilesParam = z
       '5. Heatmap: { "name": "Latency Heatmap", "config": { "displayType": "heatmap", "sourceId": "<from list_sources, must be a Trace source>", ' +
       '"select": [{ "valueExpression": "Duration" }], ' +
       '"numberFormat": { "output": "duration", "factor": 0.000000001 } } }',
+  );
+
+// Dashboard-level filters. Reuses the canonical external API filter schema
+// (`externalDashboardFilterSchemaWithId` in `packages/api/src/utils/zod.ts`)
+// so the MCP and REST surfaces stay in lockstep, and so the underlying
+// `convertExternalFiltersToInternal` helper that saveDashboard already calls
+// works without translation. `id` is optional at this layer because the same
+// inputSchema serves both create (no id, generated on save) and update
+// (preserved id) flows; per-flow strictness is enforced by
+// `createDashboardBodySchema` / `updateDashboardBodySchema`.
+export const mcpFiltersParam = z
+  .array(externalDashboardFilterSchemaWithId.partial({ id: true }))
+  .describe(
+    'Dashboard-level filters. Each filter declares a dropdown in the dashboard ' +
+      'header that scopes every tile referencing the same source. Use this for ' +
+      'focused per-dimension dashboards (per-service, per-tenant, per-endpoint) ' +
+      "instead of hardcoding the dimension into every tile's where clause.\n\n" +
+      'Filter shape: { type, name, expression, sourceId, where?, whereLanguage? }.\n' +
+      '- type: "QUERY_EXPRESSION" (the only currently supported type).\n' +
+      '- name: human label shown in the filter dropdown (e.g. "Service").\n' +
+      '- expression: column or attribute path the filter scopes (e.g. "ServiceName" ' +
+      'or "SpanAttributes[\'tenant.id\']").\n' +
+      '- sourceId: which source the expression resolves against. Tiles on a ' +
+      'different source are not scoped by the filter.\n' +
+      '- where / whereLanguage: optional pre-filter that narrows the set of ' +
+      'distinct values offered in the dropdown.\n\n' +
+      'Example:\n' +
+      '[ { "type": "QUERY_EXPRESSION", "name": "Service", "expression": "ServiceName", "sourceId": "<trace-source-id>" } ]',
   );
 
 export const mcpContainersParam = z

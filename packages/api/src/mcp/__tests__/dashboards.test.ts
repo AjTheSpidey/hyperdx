@@ -13,7 +13,11 @@ import Dashboard from '@/models/dashboard';
 import { Source } from '@/models/source';
 import type { ExternalDashboardTileWithId } from '@/utils/zod';
 
-import { buildQueryGuidePrompt } from '../prompts/dashboards/content';
+import {
+  buildCreateDashboardPrompt,
+  buildDashboardExamplesPrompt,
+  buildQueryGuidePrompt,
+} from '../prompts/dashboards/content';
 import { McpContext } from '../tools/types';
 import { callTool, createTestClient, getFirstText } from './mcpTestUtils';
 
@@ -1208,6 +1212,143 @@ describe('MCP Dashboard Tools', () => {
     });
   });
 
+  describe('hyperdx_save_dashboard - dashboard filters', () => {
+    // The MCP input schema delegates to createDashboardBodySchema /
+    // updateDashboardBodySchema for the filter shape. These tests guard
+    // that the MCP path lights up the same filter round-trip the v2 REST
+    // path already covers: filters are saved verbatim, get back with an
+    // assigned id, survive an update, and reject obvious bad inputs.
+
+    const traceTile = (sourceId: string) => ({
+      name: 'Volume',
+      x: 0,
+      y: 0,
+      w: 6,
+      h: 3,
+      config: {
+        displayType: 'line' as const,
+        sourceId,
+        select: [{ aggFn: 'count' as const, where: '' }],
+      },
+    });
+
+    it('should round-trip filters on create, get, and update', async () => {
+      const sourceId = traceSource._id.toString();
+
+      const createResult = await callTool(client, 'hyperdx_save_dashboard', {
+        name: 'Service Detail (MCP filter round-trip)',
+        tiles: [traceTile(sourceId)],
+        filters: [
+          {
+            type: 'QUERY_EXPRESSION',
+            name: 'Service',
+            expression: 'ServiceName',
+            sourceId,
+          },
+          {
+            type: 'QUERY_EXPRESSION',
+            name: 'Environment',
+            expression: 'deployment.environment',
+            sourceId,
+            where: "deployment.environment = 'production'",
+            whereLanguage: 'sql',
+          },
+        ],
+      });
+
+      expect(createResult.isError).toBeFalsy();
+      const created = JSON.parse(getFirstText(createResult));
+      expect(Array.isArray(created.filters)).toBe(true);
+      expect(created.filters).toHaveLength(2);
+      // The body schema assigns an id to each filter on create. Capture
+      // them so the update payload can include the same ids and the
+      // filter array round-trips identically (instead of being treated
+      // as wholesale replacement with new ids).
+      const [serviceFilter, envFilter] = created.filters;
+      expect(serviceFilter).toMatchObject({
+        type: 'QUERY_EXPRESSION',
+        name: 'Service',
+        expression: 'ServiceName',
+        sourceId,
+      });
+      expect(typeof serviceFilter.id).toBe('string');
+      expect(serviceFilter.id.length).toBeGreaterThan(0);
+      expect(envFilter).toMatchObject({
+        type: 'QUERY_EXPRESSION',
+        name: 'Environment',
+        expression: 'deployment.environment',
+        sourceId,
+        where: "deployment.environment = 'production'",
+        whereLanguage: 'sql',
+      });
+
+      // Fetch and assert the same shape.
+      const getResult = await callTool(client, 'hyperdx_get_dashboard', {
+        id: created.id,
+      });
+      const fetched = JSON.parse(getFirstText(getResult));
+      expect(fetched.filters).toEqual(created.filters);
+
+      // Update: rename the first filter and drop the second. The first
+      // filter keeps its id, the second is dropped (not preserved).
+      const updateResult = await callTool(client, 'hyperdx_save_dashboard', {
+        id: created.id,
+        name: 'Service Detail (MCP filter round-trip)',
+        tiles: [traceTile(sourceId)],
+        filters: [
+          {
+            id: serviceFilter.id,
+            type: 'QUERY_EXPRESSION',
+            name: 'Service (renamed)',
+            expression: 'ServiceName',
+            sourceId,
+          },
+        ],
+      });
+
+      expect(updateResult.isError).toBeFalsy();
+      const updated = JSON.parse(getFirstText(updateResult));
+      expect(updated.filters).toHaveLength(1);
+      expect(updated.filters[0]).toMatchObject({
+        id: serviceFilter.id,
+        type: 'QUERY_EXPRESSION',
+        name: 'Service (renamed)',
+        expression: 'ServiceName',
+        sourceId,
+      });
+    });
+
+    it('should reject a filter whose sourceId does not exist', async () => {
+      const sourceId = traceSource._id.toString();
+      const result = await callTool(client, 'hyperdx_save_dashboard', {
+        name: 'Bad filter source',
+        tiles: [traceTile(sourceId)],
+        filters: [
+          {
+            type: 'QUERY_EXPRESSION',
+            name: 'Service',
+            expression: 'ServiceName',
+            sourceId: '000000000000000000000000',
+          },
+        ],
+      });
+      expect(result.isError).toBe(true);
+      expect(getFirstText(result)).toContain('source');
+    });
+
+    it('should round-trip a dashboard with no filters (backward compat)', async () => {
+      const sourceId = traceSource._id.toString();
+      const result = await callTool(client, 'hyperdx_save_dashboard', {
+        name: 'No filters',
+        tiles: [traceTile(sourceId)],
+      });
+      expect(result.isError).toBeFalsy();
+      const dashboard = JSON.parse(getFirstText(result));
+      expect(Array.isArray(dashboard.filters)).toBe(true);
+      expect(dashboard.filters).toHaveLength(0);
+    });
+  });
+
   describe('hyperdx_delete_dashboard', () => {
     it('should delete an existing dashboard', async () => {
       const dashboard = await new Dashboard({
@@ -1355,6 +1496,137 @@ describe('MCP Dashboard Tools', () => {
         const body = prompt.slice(idx, next === -1 ? prompt.length : next);
         expect(body.toLowerCase()).toContain('heatmap');
       }
+    });
+
+    it('documents the dashboard filter and per-series numberFormat sections', () => {
+      const prompt = buildQueryGuidePrompt();
+      expect(prompt).toContain('== DASHBOARD FILTERS ==');
+      expect(prompt).toContain('== NUMBER FORMAT ==');
+      // The metric one-select rule is the constraint Step 1a caught
+      // during dev-stack verification; without it the AI authors
+      // multi-metric tiles that silently drop everything past select[0].
+      const constraintsIdx = prompt.indexOf('== PER-TILE TYPE CONSTRAINTS ==');
+      const constraintsBody = prompt.slice(constraintsIdx);
+      expect(constraintsBody.toLowerCase()).toContain('metric');
+      expect(constraintsBody).toContain('one tile per metric');
+    });
+  });
+
+  describe('buildCreateDashboardPrompt', () => {
+    it('includes the design checklist and adapt-do-not-copy note', () => {
+      const prompt = buildCreateDashboardPrompt(
+        'sources summary',
+        '000000000000000000000001',
+        '000000000000000000000002',
+      );
+      expect(prompt).toContain('== DESIGN CHECKLIST ==');
+      // Each rule on the checklist exists at the same heading depth so a
+      // future contributor cannot silently drop one. Numbered list
+      // matters because the prompt references rules by position when the
+      // model needs a reminder mid-task.
+      for (let i = 1; i <= 10; i++) {
+        expect(prompt).toContain(`${i}.`);
+      }
+      expect(prompt).toContain('ADAPT, DO NOT COPY');
+    });
+
+    it('contains no em-dashes or en-dashes used as em-dashes', () => {
+      const prompt = buildCreateDashboardPrompt('sources summary', '', '');
+      expect(prompt).not.toMatch(/—/);
+      // En-dash flanked by spaces reads as an em-dash substitute and is
+      // disallowed by the voice rules. Numeric ranges (e.g. "1–20") are
+      // not in the checklist anyway, but guard against them just in case.
+      expect(prompt).not.toMatch(/ – /);
+    });
+  });
+
+  describe('buildDashboardExamplesPrompt', () => {
+    it('exposes exactly the four verified trace/log examples plus infrastructure_sql', () => {
+      const all = buildDashboardExamplesPrompt(
+        '000000000000000000000001',
+        '000000000000000000000002',
+        '000000000000000000000003',
+      );
+      // Order matters here only to keep the LLM\'s navigation stable
+      // across releases. If the order changes intentionally, update the
+      // snapshot.
+      const patternLineMatch = all.match(/Available patterns: ([^\n]+)/);
+      expect(patternLineMatch).toBeTruthy();
+      const patternList = patternLineMatch?.[1].split(', ');
+      expect(patternList).toEqual([
+        'service_inventory',
+        'service_detail',
+        'log_analytics',
+        'backend_dependencies',
+        'infrastructure_sql',
+      ]);
+    });
+
+    it('renders each example with a leading "When to use" header', () => {
+      const all = buildDashboardExamplesPrompt(
+        '000000000000000000000001',
+        '000000000000000000000002',
+        '000000000000000000000003',
+      );
+      for (const heading of [
+        '== SERVICE INVENTORY ==',
+        '== SERVICE DETAIL ==',
+        '== LOG ANALYTICS ==',
+        '== BACKEND DEPENDENCIES ==',
+        '== INFRASTRUCTURE (Raw SQL) ==',
+      ]) {
+        expect(all).toContain(heading);
+      }
+      // Each non-SQL example should explain WHEN to reach for it. The
+      // SQL example does too, but the heading differs slightly.
+      const nonSqlSections = all
+        .split('== ')
+        .filter(s =>
+          [
+            'SERVICE INVENTORY',
+            'SERVICE DETAIL',
+            'LOG ANALYTICS',
+            'BACKEND DEPENDENCIES',
+          ].some(h => s.startsWith(h)),
+        );
+      for (const section of nonSqlSections) {
+        expect(section.toLowerCase()).toContain('when to use');
+      }
+    });
+
+    it('returns a single example when filtered by pattern', () => {
+      const single = buildDashboardExamplesPrompt(
+        '000000000000000000000001',
+        '000000000000000000000002',
+        '000000000000000000000003',
+        'service_inventory',
+      );
+      expect(single).toContain('== SERVICE INVENTORY ==');
+      expect(single).not.toContain('== SERVICE DETAIL ==');
+      expect(single).not.toContain('== LOG ANALYTICS ==');
+    });
+
+    it('falls back to showing all examples when pattern is unknown', () => {
+      const fallback = buildDashboardExamplesPrompt(
+        '000000000000000000000001',
+        '000000000000000000000002',
+        '000000000000000000000003',
+        'made_up_pattern',
+      );
+      expect(fallback).toContain('No example found for pattern');
+      // Listing every example name in the fallback gives the LLM a way
+      // to recover by re-requesting one of the known patterns.
+      expect(fallback).toContain('service_inventory');
+      expect(fallback).toContain('service_detail');
+    });
+
+    it('contains no em-dashes in any example body', () => {
+      const all = buildDashboardExamplesPrompt(
+        '000000000000000000000001',
+        '000000000000000000000002',
+        '000000000000000000000003',
+      );
+      expect(all).not.toMatch(/—/);
     });
   });
 });

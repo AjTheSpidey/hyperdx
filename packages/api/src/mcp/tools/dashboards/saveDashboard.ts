@@ -21,11 +21,15 @@ import {
   resolveSavedQueryLanguage,
   updateDashboardBodySchema,
 } from '@/routers/external-api/v2/utils/dashboards';
-import type { ExternalDashboardTileWithId } from '@/utils/zod';
+import type {
+  ExternalDashboardFilter,
+  ExternalDashboardFilterWithId,
+  ExternalDashboardTileWithId,
+} from '@/utils/zod';
 
 import { withToolTracing } from '../../utils/tracing';
 import type { McpContext } from '../types';
-import { mcpContainersParam, mcpTilesParam } from './schemas';
+import { mcpContainersParam, mcpFiltersParam, mcpTilesParam } from './schemas';
 
 export function registerSaveDashboard(
   server: McpServer,
@@ -55,6 +59,7 @@ export function registerSaveDashboard(
         tiles: mcpTilesParam,
         tags: z.array(z.string()).optional().describe('Dashboard tags'),
         containers: mcpContainersParam.optional(),
+        filters: mcpFiltersParam.optional(),
       }),
     },
     withToolTracing(
@@ -66,6 +71,7 @@ export function registerSaveDashboard(
         tiles: inputTiles,
         tags,
         containers,
+        filters: inputFilters,
       }) => {
         if (!dashboardId) {
           return createDashboard({
@@ -75,6 +81,7 @@ export function registerSaveDashboard(
             inputTiles,
             tags,
             containers,
+            inputFilters,
           });
         }
         return updateDashboard({
@@ -85,6 +92,7 @@ export function registerSaveDashboard(
           inputTiles,
           tags,
           containers,
+          inputFilters,
         });
       },
     ),
@@ -100,6 +108,7 @@ async function createDashboard({
   inputTiles,
   tags,
   containers,
+  inputFilters,
 }: {
   teamId: string;
   frontendUrl: string | undefined;
@@ -107,12 +116,16 @@ async function createDashboard({
   inputTiles: unknown[];
   tags: string[] | undefined;
   containers: DashboardContainer[] | undefined;
+  inputFilters:
+    | (ExternalDashboardFilter | ExternalDashboardFilterWithId)[]
+    | undefined;
 }) {
   const parsed = createDashboardBodySchema.safeParse({
     name,
     tiles: inputTiles,
     tags,
     containers,
+    filters: inputFilters,
   });
   if (!parsed.success) {
     return {
@@ -248,6 +261,7 @@ async function updateDashboard({
   inputTiles,
   tags,
   containers,
+  inputFilters,
 }: {
   teamId: string;
   frontendUrl: string | undefined;
@@ -256,6 +270,9 @@ async function updateDashboard({
   inputTiles: unknown[];
   tags: string[] | undefined;
   containers: DashboardContainer[] | undefined;
+  inputFilters:
+    | (ExternalDashboardFilter | ExternalDashboardFilterWithId)[]
+    | undefined;
 }) {
   if (!mongoose.Types.ObjectId.isValid(dashboardId)) {
     return {
@@ -269,6 +286,7 @@ async function updateDashboard({
     tiles: inputTiles,
     tags,
     containers,
+    filters: inputFilters,
   });
   if (!parsed.success) {
     return {
