@@ -420,6 +420,7 @@ const Tile = forwardRef(
             // Populate these columns from the source to support Lucene-based filters and metric table macros
             ...pick(source, [
               'implicitColumnExpression',
+              'useTextIndexForImplicitColumn',
               'from',
               'metricTables',
             ]),
@@ -457,6 +458,10 @@ const Tile = forwardRef(
             implicitColumnExpression:
               isLogSource(source) || isTraceSource(source)
                 ? source.implicitColumnExpression
+                : undefined,
+            useTextIndexForImplicitColumn:
+              isLogSource(source) || isTraceSource(source)
+                ? source.useTextIndexForImplicitColumn
                 : undefined,
             sampleWeightExpression: getSampleWeightExpression(source),
             filters,
