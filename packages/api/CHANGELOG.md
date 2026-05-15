@@ -1,5 +1,27 @@
 # @hyperdx/api
 
+## 2.26.0
+
+### Minor Changes
+
+- 46fe675b: feat(mcp): add alert, saved search, and webhook MCP tools
+
+  Add five new MCP tools for managing alerts, saved searches, and webhooks:
+
+  - `hyperdx_get_alert` / `hyperdx_save_alert` for listing, creating, and updating alerts
+  - `hyperdx_get_webhook` for listing webhook destinations
+  - `hyperdx_get_saved_search` / `hyperdx_save_saved_search` for listing, creating, and updating saved searches
+
+  Also makes `McpContext.userId` required, rejecting MCP requests without a user ID.
+
+### Patch Changes
+
+- 7386f14b: Small improvements to MCP Server (Alert Names, Event Pattern Docs, Saved Search Improvements)
+- 6c55978b: feat(alerts): include tileId in Slack alert URLs
+- 40336e9e: feat: Add dashboard table onClick to MCP schemas and prompts
+- Updated dependencies [84117a7a]
+  - @hyperdx/common-utils@0.19.1
+
 ## 2.25.0
 
 ### Minor Changes

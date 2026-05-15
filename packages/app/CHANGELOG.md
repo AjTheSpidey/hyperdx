@@ -1,5 +1,21 @@
 # @hyperdx/app
 
+## 2.26.0
+
+### Patch Changes
+
+- e2db2efe: Tune HyperDX theme tokens for sidenav active states, field backgrounds, borders, and hover grays; remove redundant color prop from chart assistant button
+- e268f6aa: Fix label color for red `Menu.Item` rows (for example Logout) by overriding `--menu-item-color` in global CSS. `Menu.extend` item styles do not apply when the menu dropdown is portaled outside the Menu root.
+- d2b6dde0: fix: Persist heatmap drag-select rectangle on Event Deltas and Search heatmaps so the dashed selection stays visible after mouseup
+- 6c55978b: feat(alerts): include tileId in Slack alert URLs
+- Updated dependencies [84117a7a]
+- Updated dependencies [46fe675b]
+- Updated dependencies [7386f14b]
+- Updated dependencies [6c55978b]
+- Updated dependencies [40336e9e]
+  - @hyperdx/common-utils@0.19.1
+  - @hyperdx/api@2.26.0
+
 ## 2.25.0
 
 ### Minor Changes

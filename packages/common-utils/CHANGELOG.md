@@ -1,5 +1,11 @@
 # @hyperdx/common-utils
 
+## 0.19.1
+
+### Patch Changes
+
+- 84117a7a: fix: support CAST() form in KV items column expression parsing for direct_read optimization
+
 ## 0.19.0
 
 ### Minor Changes
